@@ -8,6 +8,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#define DEBUG 1
+
 struct termios orig_termios;
 
 struct Buffer {
@@ -120,7 +122,9 @@ int tty_reset(void) {
   return 0;
 }
 
-void tty_atexit(void) { tty_reset(); }
+void tty_atexit(void) { 
+  tty_reset();
+}
 
 void tty_raw(void) {
   struct termios raw;
@@ -139,7 +143,15 @@ void tty_raw(void) {
 }
 
 void render_buf(struct Buffer *buf, struct Screen scr) {
+  write(STDOUT_FILENO, "\033[H", 3);
   for (int i = 0; i < buf->size; ++i) {
+    // printf("\n%u\n", buf->size);
+    // printf("\n%u %d\n", buf->row_size[i], i);
+    if (i > 0) {
+      char c_out[] = "\r\n";
+      write(STDOUT_FILENO, c_out, 2);
+    }
+
     for (int j = 0; j < buf->row_size[i]; ++j) {
       char c_out = buf->rows[i][j];
       write(STDOUT_FILENO, &c_out, 1);
@@ -147,11 +159,17 @@ void render_buf(struct Buffer *buf, struct Screen scr) {
   }
 }
 
-int get_input() {
+int get_input(struct Buffer* buf) {
   char c_in;
   int bytesread;
 
+  char esc_seq[100];
+  sprintf(esc_seq, "\033[%d;%dH", buf->cx+1, buf->cy+1);
+  write(STDOUT_FILENO, esc_seq, strlen(esc_seq));
+
+
   bytesread = read(STDIN_FILENO, &c_in, 1);
+
   if (bytesread < 0) fatal_err("read error");
   if (bytesread == 0) { // timed out
     return -1;
@@ -192,28 +210,35 @@ void buffer_write(struct Buffer* buf, char c) {
 
     buf->rows[0] = malloc(100 * sizeof(char));
 
-    if (('a' < c && c < 'z') || ('A' < c && c < 'Z')) {
-      strncat(buf->rows[buf->cy], &c, 1);
-      buf->cy++;
-      buf->row_size[0] = 1;
+    strncat(buf->rows[buf->cx], &c, 1);
+    buf->cy++;
+    buf->row_size[0] = 1;
+  }
+
+  else if (c == ret_code || c == nl) {
+    if (buf->size + 1 >= buf->r_size) {
+      buf->r_size += 10;
+
+      buf->rows = realloc(buf->rows, buf->r_size);
+      buf->row_size = realloc(buf->row_size, buf->r_size);
+      buf->r_row_size = realloc(buf->r_row_size, buf->r_size);
     }
+    buf->cx++;
+    buf->size++;
+    buf->cy = 0;
   }
 
   else {
-    if (c == 13) { // implement return = new line + return
-
-    }
 
     if (buf->row_size[buf->cx] + 1 >= buf->r_row_size[buf->cx]) {
-      buf->rows[buf->cx] = realloc(buf->rows[buf->cx], buf->r_row_size[buf->cx] + 100);
       buf->r_row_size[buf->cx] += 100;
+      buf->rows[buf->cx] = realloc(buf->rows[buf->cx],
+                                   (buf->r_row_size[buf->cx]) * sizeof(char*));
     }
 
-    if (('a' < c && c < 'z') || ('A' < c && c < 'Z')) {
-      strncpy(buf->rows[buf->cx], &c, 1);
-      buf->cy++;
-      buf->row_size[buf->cx]++;
-    }
+    strncat(buf->rows[buf->cx], &c, 1);
+    buf->cy++;
+    buf->row_size[buf->cx]++;
   }
 }
 
@@ -229,6 +254,8 @@ int main() {
     fatal_err("atexit: can't register tty reset");
 
   tty_raw();
+  write(STDOUT_FILENO, "\033[2J", 4);
+  write(STDOUT_FILENO, "\033[0;0H", 6);
 
   struct Screen scr;
 
@@ -242,19 +269,21 @@ int main() {
   buf->cx = 0;
   buf->cy = 0;
 
-  int w_limit = 30;
+  int w_limit = 500;
   while (w_limit--) {
+    // tcgetattr(STDIN_FILENO, &orig_termios);
     int i_inp;
     char c_inp;
 
     render_buf(buf, scr);
-    i_inp = get_input();
+    i_inp = get_input(buf);
     if (i_inp == 24) {
       break;
     }
 
     c_inp = (char) i_inp;
     buffer_write(buf, c_inp);
+    // tty_reset();
   }
 
   Buffer_dealocate(buf);
