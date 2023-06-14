@@ -143,6 +143,7 @@ void tty_raw(void) {
 }
 
 void render_buf(struct Buffer *buf, struct Screen scr) {
+  // write(STDOUT_FILENO, "\033[2J", 4);
   write(STDOUT_FILENO, "\033[H", 3);
   for (int i = 0; i < buf->size; ++i) {
     // printf("\n%u\n", buf->size);
@@ -226,6 +227,18 @@ void buffer_write(struct Buffer* buf, char c) {
     buf->cx++;
     buf->size++;
     buf->cy = 0;
+  } 
+
+
+  else if (c == 127) {
+    buf->cy--;
+    buf->row_size[buf->cx]--;
+    buf->rows[buf->cx][buf->cy] = '\0';
+
+  char esc_seq[100];
+  sprintf(esc_seq, "\033[%d;%dH", buf->cx+1, buf->cy+1);
+  write(STDOUT_FILENO, esc_seq, strlen(esc_seq));
+  write(STDOUT_FILENO, "\033[0K", 4);
   }
 
   else {
@@ -235,6 +248,7 @@ void buffer_write(struct Buffer* buf, char c) {
       buf->rows[buf->cx] = realloc(buf->rows[buf->cx],
                                    (buf->r_row_size[buf->cx]) * sizeof(char*));
     }
+
 
     strncat(buf->rows[buf->cx], &c, 1);
     buf->cy++;
