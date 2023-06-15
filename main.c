@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #define DEBUG 1
+#define TAB_SIZE 2
 
 struct termios orig_termios;
 
@@ -109,7 +110,7 @@ unsigned *get_term_lcol(void) {
   cols = cols < 0 ? 0 : cols;
   lins = lins < 0 ? 0 : lins;
 
-  unsigned *lcol = malloc(2 * sizeof(int));
+  unsigned *lcol = malloc(2 * sizeof(unsigned));
   lcol[0] = lins;
   lcol[1] = cols;
 
@@ -146,14 +147,15 @@ void render_buf(struct Buffer *buf, struct Screen scr) {
   // write(STDOUT_FILENO, "\033[2J", 4);
   write(STDOUT_FILENO, "\033[H", 3);
   for (int i = 0; i < buf->size; ++i) {
-    // printf("\n%u\n", buf->size);
-    // printf("\n%u %d\n", buf->row_size[i], i);
+
     if (i > 0) {
       char c_out[] = "\r\n";
       write(STDOUT_FILENO, c_out, 2);
     }
 
+    // fprintf(stderr, "\n\n%d row_size: %lu\n", i, buf->row_size[i]);
     for (int j = 0; j < buf->row_size[i]; ++j) {
+      // fprintf(stderr, "\n\nprint %d %d\n", i, j);
       char c_out = buf->rows[i][j];
       write(STDOUT_FILENO, &c_out, 1);
     }
@@ -189,40 +191,40 @@ void fatal_err(char *message) {
   exit(1);
 }
 
+void buffer_init(struct Buffer* buf) {
+  buf->size = 1;
+  buf->r_size = 10;
+
+  buf->rows = calloc(10, sizeof(char*));
+
+  buf->row_size = calloc(10, sizeof(unsigned long));
+  // for (int i = 0; i < 10; ++i) buf->row_size[i] = 0;
+
+  buf->r_row_size = calloc(10, sizeof(unsigned long));
+  // for (int i = 0; i < 10; ++i) buf->r_row_size[i] = 0;
+
+  buf->rows[0] = calloc(100, sizeof(char));
+}
+
 void buffer_write(struct Buffer* buf, char c) {
-  char up[] = "\033[A";
-  char down[] = "\033[B";
-  char right[] = "\033[C";
-  char left[] = "\033[D";
 
   char ret_code = 13;
   char nl = '\n';
 
-  if (buf->size == 0) {
-    buf->size = 1;
-    buf->r_size = 10;
 
-    buf->rows = malloc(10 * sizeof(char*));
-
-    buf->row_size = malloc(10 * sizeof(int*));
-    buf->r_row_size = malloc(10 * sizeof(int*));
-
-    buf->r_row_size[0] = 100;
-
-    buf->rows[0] = malloc(100 * sizeof(char));
-
-    strncat(buf->rows[buf->cx], &c, 1);
-    buf->cy++;
-    buf->row_size[0] = 1;
-  }
-
-  else if (c == ret_code || c == nl) {
+  if (c == ret_code || c == nl) {
+    // fprintf(stderr, "\n\n\n%lu %lu\n", buf->size, buf->r_size);
     if (buf->size + 1 >= buf->r_size) {
+      int old_size = buf->r_size;
       buf->r_size += 10;
 
-      buf->rows = realloc(buf->rows, buf->r_size);
-      buf->row_size = realloc(buf->row_size, buf->r_size);
-      buf->r_row_size = realloc(buf->r_row_size, buf->r_size);
+      buf->rows = realloc(buf->rows, buf->r_size * sizeof(char*));
+
+      buf->row_size = realloc(buf->row_size, buf->r_size * sizeof(unsigned long));
+      memset(buf->row_size+old_size, 0, buf->r_size-old_size);
+
+      buf->r_row_size = realloc(buf->r_row_size, buf->r_size * sizeof(unsigned long));
+      memset(buf->r_row_size+old_size, 0, buf->r_size-old_size);
     }
     buf->cx++;
     buf->size++;
@@ -230,29 +232,93 @@ void buffer_write(struct Buffer* buf, char c) {
   } 
 
 
-  else if (c == 127) {
+  else if (c == 127) { // backspace
+    if (buf->cy <= 0) {
+      return;
+    }
+
     buf->cy--;
     buf->row_size[buf->cx]--;
-    buf->rows[buf->cx][buf->cy] = '\0';
+    
+    if (buf->cy < buf->row_size[buf->cx]) {
+      memmove(buf->rows[buf->cx]+buf->cy, buf->rows[buf->cx]+buf->cy+1, buf->row_size[buf->cx]-buf->cy);
+    } else {
+      buf->rows[buf->cx][buf->cy] = '\0';
+    }
 
-  char esc_seq[100];
-  sprintf(esc_seq, "\033[%d;%dH", buf->cx+1, buf->cy+1);
-  write(STDOUT_FILENO, esc_seq, strlen(esc_seq));
-  write(STDOUT_FILENO, "\033[0K", 4);
+    char esc_seq[100];
+    sprintf(esc_seq, "\033[%d;%dH", buf->cx+1, buf->cy+1);
+    write(STDOUT_FILENO, esc_seq, strlen(esc_seq));
+    write(STDOUT_FILENO, "\033[0K", 4);
+  } 
+
+  else if (c == '\t') { // convert tabs to spaces
+    // fprintf(stderr, "\n\n\n%d %d", buf->row_size[buf->cx], buf->cy);
+
+    if (buf->row_size[buf->cx] + TAB_SIZE >= buf->r_row_size[buf->cx]) {
+      buf->r_row_size[buf->cx] += 100;
+      buf->rows[buf->cx] = realloc(buf->rows[buf->cx],
+                                   (buf->r_row_size[buf->cx]) * sizeof(char));
+    }
+
+    if (buf->row_size[buf->cx] == buf->cy) {
+      for (int i = 0; i < TAB_SIZE; ++i) {
+        strcat(buf->rows[buf->cx], " ");
+      }
+      buf->cy += TAB_SIZE;
+      buf->row_size[buf->cx] += TAB_SIZE;
+
+    } else {
+      memmove(buf->rows[buf->cx]+buf->cy+TAB_SIZE, buf->rows[buf->cx]+buf->cy, buf->row_size[buf->cx]-buf->cy-1);
+      for (int i = buf->cy; i < buf->cy+TAB_SIZE; ++i) {
+        buf->rows[buf->cx][i] = ' ';
+      }
+      buf->cy += TAB_SIZE;
+      buf->row_size[buf->cx] += TAB_SIZE;
+    }
+    
   }
-
-  else {
+  else { //writable chars
 
     if (buf->row_size[buf->cx] + 1 >= buf->r_row_size[buf->cx]) {
       buf->r_row_size[buf->cx] += 100;
       buf->rows[buf->cx] = realloc(buf->rows[buf->cx],
-                                   (buf->r_row_size[buf->cx]) * sizeof(char*));
+                                   (buf->r_row_size[buf->cx]) * sizeof(char));
     }
 
 
-    strncat(buf->rows[buf->cx], &c, 1);
-    buf->cy++;
-    buf->row_size[buf->cx]++;
+
+    if (buf->row_size[buf->cx] == buf->cy) {
+      strncat(buf->rows[buf->cx], &c, 1);
+      buf->cy++;
+      buf->row_size[buf->cx]++;
+
+    } else {
+      memmove(buf->rows[buf->cx]+buf->cy+1, buf->rows[buf->cx]+buf->cy, buf->row_size[buf->cx]-buf->cy-1);
+      buf->rows[buf->cx][buf->cy] = c;
+      buf->cy++;
+      buf->row_size[buf->cx]++;
+    }
+  }
+}
+
+void handle_key(const char* str, struct Buffer* buf) {
+  if (!strcmp(str, "up")) {
+    if (buf->cx > 0) {
+      buf->cx--;
+    }
+  } else if (!strcmp(str, "down")) {
+    if (buf->cx < buf->size - 1) {
+      buf->cx++;
+    }
+  } else if (!strcmp(str, "left")) {
+    if (buf->cy > 0) {
+      buf->cy--;
+    }
+  } else if (!strcmp(str, "right")) {
+    if (buf->cy < buf->row_size[buf->cx]) {
+      buf->cy++;
+    }
   }
 }
 
@@ -283,6 +349,8 @@ int main() {
   buf->cx = 0;
   buf->cy = 0;
 
+  buffer_init(buf);
+
   int w_limit = 500;
   while (w_limit--) {
     // tcgetattr(STDIN_FILENO, &orig_termios);
@@ -291,12 +359,36 @@ int main() {
 
     render_buf(buf, scr);
     i_inp = get_input(buf);
-    if (i_inp == 24) {
+    if (i_inp == 24) { // ctr-x
       break;
     }
 
-    c_inp = (char) i_inp;
-    buffer_write(buf, c_inp);
+    if ((char) i_inp == '\033') { // especial characters
+      char sec_char = get_input(buf);
+      if (sec_char == '[') {
+        char third_char = get_input(buf);
+        switch(third_char) {
+          case 'A':
+            handle_key("up", buf);
+            break;
+
+          case 'B':
+            handle_key("down", buf);
+            break;
+
+          case 'C':
+            handle_key("right", buf);
+            break;
+
+          case 'D':
+            handle_key("left", buf);
+            break;
+        } 
+      }
+    } else {
+      c_inp = (char) i_inp;
+      buffer_write(buf, c_inp);
+    }
     // tty_reset();
   }
 
