@@ -11,6 +11,16 @@
 #define DEBUG 1
 #define TAB_SIZE 2
 
+#define MAX(a, b) \
+  ({ __typeof__(a) a_ = (a); \
+     __typeof__(b) b_ = (b); \
+     a_ > b_ ? a_ : b_; })
+
+#define MIN(a, b) \
+  ({ __typeof__(a) a_ = (a); \
+     __typeof__(b) b_ = (b); \
+     a_ < b_ ? a_ : b_; })
+
 struct termios orig_termios;
 
 struct Buffer {
@@ -33,7 +43,7 @@ unsigned *get_term_lcol(void);
 int tty_reset(void);
 void tty_atexit(void);
 void tty_raw(void);
-void render_buf(struct Buffer *, struct Screen);
+int render_buf(struct Buffer *, struct Screen*, int);
 
 void Buffer_dealocate(struct Buffer *buf) {
   if (buf->size > 0) {
@@ -143,31 +153,52 @@ void tty_raw(void) {
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) < 0) fatal_err("can't set raw mode");
 }
 
-void render_buf(struct Buffer *buf, struct Screen scr) {
-  // write(STDOUT_FILENO, "\033[2J", 4);
-  write(STDOUT_FILENO, "\033[H", 3);
-  for (int i = 0; i < buf->size; ++i) {
+int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
+  unsigned int *lcol = malloc(2 * sizeof(unsigned int));
+  lcol = get_term_lcol();
+  scr->lins = lcol[0];
+  scr->cols = lcol[1];
+  free(lcol);
 
-    if (i > 0) {
+  write(STDOUT_FILENO, "\033[H", 3);
+  
+  long limit = MAX(0L, (long) buf->size - (long) scr->lins);
+  // fprintf(stderr, "\n\n%li %u %u\n", limit, scr.lins, scr.cols);
+
+  if (limit != llimit) {
+    write(STDOUT_FILENO, "\033[2J", 4);
+
+  }
+
+  // fprintf(stderr, "%ld %lu", limit, buf->size);
+  for (int i = limit; i <  buf->size; ++i) {
+  // for (int i = 0; i < buf->size; ++i) {
+
+    if (i > limit) {
       char c_out[] = "\r\n";
       write(STDOUT_FILENO, c_out, 2);
     }
 
-    // fprintf(stderr, "\n\n%d row_size: %lu\n", i, buf->row_size[i]);
+    // fprintf(stderr, "               %d row_size: %lu", i, buf->row_size[i]);
     for (int j = 0; j < buf->row_size[i]; ++j) {
       // fprintf(stderr, "\n\nprint %d %d\n", i, j);
       char c_out = buf->rows[i][j];
       write(STDOUT_FILENO, &c_out, 1);
     }
   }
+  return limit;
 }
 
-int get_input(struct Buffer* buf) {
+int get_input(struct Buffer* buf, struct Screen *scr) {
   char c_in;
   int bytesread;
 
-  char esc_seq[100];
-  sprintf(esc_seq, "\033[%d;%dH", buf->cx+1, buf->cy+1);
+  char esc_seq[300];
+  int start = MAX(0, (int) buf->size - (int) scr->lins);
+  int rx = (int) buf->cx - start + 1;
+  // int ry = 
+  // fprintf(stderr, "%d %d", start, rx);
+  sprintf(esc_seq, "\033[%d;%dH", rx, buf->cy+1);
   write(STDOUT_FILENO, esc_seq, strlen(esc_seq));
 
 
@@ -206,7 +237,7 @@ void buffer_init(struct Buffer* buf) {
   buf->rows[0] = calloc(100, sizeof(char));
 }
 
-void buffer_write(struct Buffer* buf, char c) {
+void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
 
   char ret_code = 13;
   char nl = '\n';
@@ -247,7 +278,10 @@ void buffer_write(struct Buffer* buf, char c) {
     }
 
     char esc_seq[100];
-    sprintf(esc_seq, "\033[%d;%dH", buf->cx+1, buf->cy+1);
+
+    int start = MAX(0, (int) buf->size - (int) scr->lins);
+    int rx = (int) buf->cx - start + 1;
+    sprintf(esc_seq, "\033[%d;%dH", rx, buf->cy);
     write(STDOUT_FILENO, esc_seq, strlen(esc_seq));
     write(STDOUT_FILENO, "\033[0K", 4);
   } 
@@ -294,7 +328,7 @@ void buffer_write(struct Buffer* buf, char c) {
       buf->row_size[buf->cx]++;
 
     } else {
-      memmove(buf->rows[buf->cx]+buf->cy+1, buf->rows[buf->cx]+buf->cy, buf->row_size[buf->cx]-buf->cy-1);
+      memmove(buf->rows[buf->cx] + buf->cy + 1, buf->rows[buf->cx] + buf->cy, buf->row_size[buf->cx] - buf->cy+1);
       buf->rows[buf->cx][buf->cy] = c;
       buf->cy++;
       buf->row_size[buf->cx]++;
@@ -306,10 +340,12 @@ void handle_key(const char* str, struct Buffer* buf) {
   if (!strcmp(str, "up")) {
     if (buf->cx > 0) {
       buf->cx--;
+      buf->cy = MIN(buf->cy, buf->row_size[buf->cx]);
     }
   } else if (!strcmp(str, "down")) {
     if (buf->cx < buf->size - 1) {
       buf->cx++;
+      buf->cy = MIN(buf->cy, buf->row_size[buf->cx]);
     }
   } else if (!strcmp(str, "left")) {
     if (buf->cy > 0) {
@@ -322,7 +358,27 @@ void handle_key(const char* str, struct Buffer* buf) {
   }
 }
 
-int main() {
+int save_file(const char* filename, struct Buffer* buf) {
+  FILE* file_pointer = fopen(filename, "w+");
+
+  if (file_pointer == NULL) {
+    return -2;
+  }
+
+  for (int i = 0; i < buf->size; ++i) {
+    if (i > 0) {
+      if (fputs("\n", file_pointer) == EOF) {
+        return -1;
+      }
+    }
+
+    if (fputs(buf->rows[i], file_pointer) == EOF) {
+      return -1;
+    }
+  }
+  return 0;
+}
+int main(int argc, char** argv) {
 
   if (!isatty(STDIN_FILENO))
     fatal_err("fatal error: not on a tty");
@@ -333,15 +389,21 @@ int main() {
   if (atexit(tty_atexit) != 0)
     fatal_err("atexit: can't register tty reset");
 
+  char filename[300] = "";
+
+  if (argc > 1) {
+    strcpy(filename, argv[1]);
+  }
+
   tty_raw();
   write(STDOUT_FILENO, "\033[2J", 4);
   write(STDOUT_FILENO, "\033[0;0H", 6);
 
-  struct Screen scr;
+  struct Screen* scr = malloc(sizeof(struct Screen));
 
   unsigned *lcol = get_term_lcol();
-  scr.lins = lcol[1];
-  scr.cols = lcol[0];
+  scr->lins = lcol[1];
+  scr->cols = lcol[0];
 
   free(lcol);
 
@@ -352,21 +414,22 @@ int main() {
   buffer_init(buf);
 
   int w_limit = 500;
+  int llimit = 0;
   while (w_limit--) {
     // tcgetattr(STDIN_FILENO, &orig_termios);
     int i_inp;
     char c_inp;
 
-    render_buf(buf, scr);
-    i_inp = get_input(buf);
+    llimit = render_buf(buf, scr, llimit);
+    i_inp = get_input(buf, scr);
     if (i_inp == 24) { // ctr-x
       break;
     }
 
     if ((char) i_inp == '\033') { // especial characters
-      char sec_char = get_input(buf);
+      char sec_char = get_input(buf, scr);
       if (sec_char == '[') {
-        char third_char = get_input(buf);
+        char third_char = get_input(buf, scr);
         switch(third_char) {
           case 'A':
             handle_key("up", buf);
@@ -385,9 +448,15 @@ int main() {
             break;
         } 
       }
-    } else {
+    } 
+
+    else if (i_inp == 19) {
+      save_file(filename, buf);
+    } 
+
+    else {
       c_inp = (char) i_inp;
-      buffer_write(buf, c_inp);
+      buffer_write(buf, c_inp, scr);
     }
     // tty_reset();
   }
