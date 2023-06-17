@@ -134,6 +134,9 @@ int tty_reset(void) {
 }
 
 void tty_atexit(void) { 
+  write(STDOUT_FILENO, "\033[2J", 4);
+  write(STDOUT_FILENO, "\033[0;0H", 6);
+  // write()
   tty_reset();
 }
 
@@ -151,6 +154,41 @@ void tty_raw(void) {
   raw.c_cc[VTIME] = 8; /* after 5 bytes or .8 seconds after first byte seen */
 
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) < 0) fatal_err("can't set raw mode");
+}
+
+void write_to_position(int row, int column, const char* msg) {
+  char esq_sec[200];
+  sprintf(esq_sec, "\033[%d;%dH%s", row, column, msg);
+  write(STDOUT_FILENO, esq_sec, strlen(esq_sec));
+}
+
+const char* get_command(const char * msg, struct Screen* scr) {
+  char c;
+  char str[200] = "";
+  char str_msg[400];
+
+  int w_limit = 199;
+  while (w_limit--) {
+    strcpy(str_msg, msg);
+    strcat(str_msg, str);
+    write_to_position(scr->lins , 0 , str_msg);
+    read(STDIN_FILENO, &c, 1);
+    if (c == 13 || c == '\n') {
+      break;
+    } 
+
+    else if (c == 127) {
+      str[strlen(str)-1] = 0;
+    } 
+
+    else {
+      strncat(str, &c, 1);
+    }
+  }
+
+  const char *com = (const char *) str;
+
+  return com;
 }
 
 int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
@@ -362,22 +400,28 @@ int save_file(const char* filename, struct Buffer* buf) {
   FILE* file_pointer = fopen(filename, "w+");
 
   if (file_pointer == NULL) {
+    fprintf(stderr, "Couldn't open file %s\n", filename);
     return -2;
   }
 
   for (int i = 0; i < buf->size; ++i) {
     if (i > 0) {
       if (fputs("\n", file_pointer) == EOF) {
+        fprintf(stderr, "Error while writing to file %s\n", filename);
         return -1;
       }
     }
 
-    if (fputs(buf->rows[i], file_pointer) == EOF) {
-      return -1;
+    for (int j = 0; j < buf->row_size[i]; ++j) {
+      if (fputc(buf->rows[i][j], file_pointer) == EOF) {
+        fprintf(stderr, "Error while writing to file %s\n", filename);
+        return -1;
+      }
     }
   }
   return 0;
 }
+
 int main(int argc, char** argv) {
 
   if (!isatty(STDIN_FILENO))
@@ -411,6 +455,7 @@ int main(int argc, char** argv) {
   buf->cx = 0;
   buf->cy = 0;
 
+
   buffer_init(buf);
 
   int w_limit = 500;
@@ -426,7 +471,13 @@ int main(int argc, char** argv) {
       break;
     }
 
-    if ((char) i_inp == '\033') { // especial characters
+    else if (i_inp == 6) {
+      const char* newfname = get_command("Save file as: ", scr);
+      write(STDOUT_FILENO, "\033[2J", 4);
+      strcpy(filename, newfname);
+    }
+
+    else if ((char) i_inp == '\033') { // especial characters
       char sec_char = get_input(buf, scr);
       if (sec_char == '[') {
         char third_char = get_input(buf, scr);
