@@ -45,17 +45,50 @@ void tty_atexit(void);
 void tty_raw(void);
 int render_buf(struct Buffer *, struct Screen*, int);
 
+void print_debug(const char *msg) {
+  char nmsg[300];
+
+  strcpy(nmsg, msg);
+  strcat(nmsg, "\r\n");
+
+  write(STDOUT_FILENO, nmsg, strlen(nmsg));
+  char dum;
+
+  read(STDIN_FILENO, &dum, 1);
+
+}
+
 void Buffer_dealocate(struct Buffer *buf) {
   if (buf->size > 0) {
     for (int i = 0; i < buf->r_size; ++i) {
-      free(buf->rows[i]);
+      if (buf->rows[i] != NULL) {
+        free(buf->rows[i]);
+        buf->rows[i] = NULL;
+      }
     }
-    free(buf->row_size);
-    free(buf->r_row_size);
-    free(buf->rows);
+
+    if (buf->row_size != NULL) {
+      free(buf->row_size);
+      buf->row_size = NULL;
+    }
+
+    if (buf->r_row_size != NULL) {
+      free(buf->r_row_size);
+      buf->r_row_size = NULL;
+    }
+
+    if (buf->rows != NULL) {
+      free(buf->rows);
+      buf->rows = NULL;
+    }
   }
+
   buf->size = 0;
-  free(buf);
+
+  if (buf != NULL) {
+    free(buf);
+    buf = NULL;
+  }
 }
 
 unsigned *get_term_lcol(void) {
@@ -201,25 +234,19 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
   write(STDOUT_FILENO, "\033[H", 3);
   
   long limit = MAX(0L, (long) buf->size - (long) scr->lins);
-  // fprintf(stderr, "\n\n%li %u %u\n", limit, scr.lins, scr.cols);
 
   if (limit != llimit) {
     write(STDOUT_FILENO, "\033[2J", 4);
-
   }
 
-  // fprintf(stderr, "%ld %lu", limit, buf->size);
   for (int i = limit; i <  buf->size; ++i) {
-  // for (int i = 0; i < buf->size; ++i) {
 
     if (i > limit) {
       char c_out[] = "\r\n";
       write(STDOUT_FILENO, c_out, 2);
     }
 
-    // fprintf(stderr, "               %d row_size: %lu", i, buf->row_size[i]);
     for (int j = 0; j < buf->row_size[i]; ++j) {
-      // fprintf(stderr, "\n\nprint %d %d\n", i, j);
       char c_out = buf->rows[i][j];
       write(STDOUT_FILENO, &c_out, 1);
     }
@@ -234,8 +261,7 @@ int get_input(struct Buffer* buf, struct Screen *scr) {
   char esc_seq[300];
   int start = MAX(0, (int) buf->size - (int) scr->lins);
   int rx = (int) buf->cx - start + 1;
-  // int ry = 
-  // fprintf(stderr, "%d %d", start, rx);
+
   sprintf(esc_seq, "\033[%d;%dH", rx, buf->cy+1);
   write(STDOUT_FILENO, esc_seq, strlen(esc_seq));
 
@@ -267,10 +293,8 @@ void buffer_init(struct Buffer* buf) {
   buf->rows = calloc(10, sizeof(char*));
 
   buf->row_size = calloc(10, sizeof(unsigned long));
-  // for (int i = 0; i < 10; ++i) buf->row_size[i] = 0;
 
   buf->r_row_size = calloc(10, sizeof(unsigned long));
-  // for (int i = 0; i < 10; ++i) buf->r_row_size[i] = 0;
 
   buf->rows[0] = calloc(100, sizeof(char));
 }
@@ -282,7 +306,6 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
 
 
   if (c == ret_code || c == nl) {
-    // fprintf(stderr, "\n\n\n%lu %lu\n", buf->size, buf->r_size);
     if (buf->size + 1 >= buf->r_size) {
       int old_size = buf->r_size;
       buf->r_size += 10;
@@ -295,6 +318,26 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       buf->r_row_size = realloc(buf->r_row_size, buf->r_size * sizeof(unsigned long));
       memset(buf->r_row_size+old_size, 0, buf->r_size-old_size);
     }
+
+    if (buf->cx != buf->size-1) {
+      memmove(&buf->rows[buf->cx + 2], &buf->rows[buf->cx + 1], (buf->size - buf->cx - 1 ) * sizeof(char*));
+      memmove(&buf->row_size[buf->cx + 2], &buf->row_size[buf->cx + 1], (buf->size - buf->cx - 1 ) * (sizeof(unsigned long)));
+      memmove(&buf->r_row_size[buf->cx + 2], &buf->r_row_size[buf->cx + 1], (buf->size - buf->cx - 1) * sizeof(unsigned long));
+
+
+      buf->rows[buf->cx + 1] = (char*) malloc(100 * sizeof(char));
+      strcpy(buf->rows[buf->cx + 1], "");
+
+      buf->row_size[buf->cx + 1] = 0;
+      buf->r_row_size[buf->cx + 1] = 100;
+
+      char goto_erase_line[200];
+      sprintf(goto_erase_line, "\033[%d;0H", buf->cx);
+
+      write(STDOUT_FILENO, goto_erase_line, strlen(goto_erase_line));
+      write(STDOUT_FILENO, "\033[0J", 4);
+    }
+
     buf->cx++;
     buf->size++;
     buf->cy = 0;
@@ -357,8 +400,6 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       buf->rows[buf->cx] = realloc(buf->rows[buf->cx],
                                    (buf->r_row_size[buf->cx]) * sizeof(char));
     }
-
-
 
     if (buf->row_size[buf->cx] == buf->cy) {
       strncat(buf->rows[buf->cx], &c, 1);
@@ -495,9 +536,6 @@ void buffer_read(struct Buffer* buf, const char * filename) {
     strcpy(buf->rows[i], line);
     buf->row_size[i] = strlen(line);
     buf->r_row_size[i] = readSize + 30;
-    // fprintf(stderr, "i = %d  line = %s bur->rows[i] = %s\r\n", i, line, buf->rows[i]);
-    // char dum;
-    // read(STDIN_FILENO, &dum, 1);
     i++;
   }
 
