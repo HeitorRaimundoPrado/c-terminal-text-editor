@@ -422,6 +422,92 @@ int save_file(const char* filename, struct Buffer* buf) {
   return 0;
 }
 
+void buffer_read(struct Buffer* buf, const char * filename) {
+  FILE *file = fopen(filename, "r");
+  if (file == NULL) {
+    fprintf(stderr, "Unable to open file %s\n", filename);
+    exit(1);
+  }
+
+
+  int num_rows = 0;
+  char ch;
+  while ((ch = fgetc(file)) != EOF) {
+    if (ch == '\n') {
+      num_rows++;
+    }
+  }
+  num_rows++;
+  // fprintf(stderr, "\n\nnum_rows = %i\n", num_rows);
+  // char dum;
+  // read(STDIN_FILENO, &dum, 1);
+  fseek(file, 0, SEEK_SET);
+
+
+  buf->rows = (char**) malloc(num_rows*sizeof(char*));
+  if (buf->rows == NULL) {
+    fprintf(stderr, "Failed to allocate memory\n");
+    exit(1);
+  }
+
+  buf->row_size = (unsigned long*) malloc(num_rows*sizeof(unsigned long));
+  if (buf->row_size == NULL) {
+    fprintf(stderr, "Failed to allocate memory\n");
+    free(buf->rows);
+    exit(1);
+  }
+
+  buf->r_row_size = (unsigned long*) malloc(num_rows*sizeof(unsigned long));
+  if (buf->r_row_size == NULL) {
+    fprintf(stderr, "Failed to allocate memory\n");
+    free(buf->rows);
+    free(buf->row_size);
+    exit(1);
+  }
+
+  char *line = NULL;
+  size_t line_len = 0;
+  int i = 0;
+  ssize_t readSize;
+
+  while ((readSize = getline(&line, &line_len, file)) != -1) {
+    if (line[readSize - 1] == '\n') {
+      line[readSize - 1] = '\0';
+    }
+
+
+    buf->rows[i] = (char*) malloc((readSize + 30) * sizeof(char));
+    if (buf->rows[i] == NULL) {
+      fclose(file);
+      free(line);
+      for (int j = 0; j < i; j++) {
+        free(buf->rows[j]);
+      }
+      free(buf->rows);
+      free(buf->row_size);
+      free(buf->r_row_size);
+      fprintf(stderr, "Failed to allocate data\n");
+      buf->rows = NULL;
+      buf->size = 0;
+      buf->r_size = 0;
+    }
+
+    strcpy(buf->rows[i], line);
+    buf->row_size[i] = strlen(line);
+    buf->r_row_size[i] = readSize + 30;
+    // fprintf(stderr, "i = %d  line = %s bur->rows[i] = %s\r\n", i, line, buf->rows[i]);
+    // char dum;
+    // read(STDIN_FILENO, &dum, 1);
+    i++;
+  }
+
+  buf->size = num_rows;
+  buf->r_size = num_rows;
+  free(line);
+
+  fclose(file);
+}
+
 int main(int argc, char** argv) {
 
   if (!isatty(STDIN_FILENO))
@@ -435,9 +521,6 @@ int main(int argc, char** argv) {
 
   char filename[300] = "";
 
-  if (argc > 1) {
-    strcpy(filename, argv[1]);
-  }
 
   tty_raw();
   write(STDOUT_FILENO, "\033[2J", 4);
@@ -458,7 +541,14 @@ int main(int argc, char** argv) {
 
   buffer_init(buf);
 
-  int w_limit = 500;
+  if (argc > 1) {
+    strcpy(filename, argv[1]);
+    if (access(filename, F_OK) == 0) { // file exists
+      buffer_read(buf, filename);
+    }
+  }
+
+  int w_limit = 500000;
   int llimit = 0;
   while (w_limit--) {
     // tcgetattr(STDIN_FILENO, &orig_termios);
