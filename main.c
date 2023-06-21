@@ -21,6 +21,9 @@
      __typeof__(b) b_ = (b); \
      a_ < b_ ? a_ : b_; })
 
+int tabs = 0;
+int sp_rem = 0;
+
 struct termios orig_termios;
 
 struct Buffer {
@@ -48,6 +51,7 @@ int render_buf(struct Buffer *, struct Screen*, int);
 void print_debug(const char *msg) {
   char nmsg[300];
 
+  write(STDOUT_FILENO, "\033[2J", 4);
   strcpy(nmsg, msg);
   strcat(nmsg, "\r\n");
 
@@ -319,6 +323,17 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       memset(buf->r_row_size+old_size, 0, buf->r_size-old_size);
     }
 
+    char tabstr[300] = "";
+    // char num_of_tabs[300];
+
+    // sprintf(num_of_tabs, "%i", MIN(tabs, 300));
+    // print_debug("num of tabs:");
+    // print_debug(num_of_tabs);
+
+    for (int i = 0; i < MIN(tabs, 300); ++i) {
+      strcat(tabstr, "  ");
+    }
+
     if (buf->cx != buf->size-1) {
       memmove(&buf->rows[buf->cx + 2], &buf->rows[buf->cx + 1], (buf->size - buf->cx - 1 ) * sizeof(char*));
       memmove(&buf->row_size[buf->cx + 2], &buf->row_size[buf->cx + 1], (buf->size - buf->cx - 1 ) * (sizeof(unsigned long)));
@@ -326,7 +341,8 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
 
 
       buf->rows[buf->cx + 1] = (char*) malloc(100 * sizeof(char));
-      strcpy(buf->rows[buf->cx + 1], "");
+
+      strncpy(buf->rows[buf->cx + 1], tabstr, strlen(tabstr));
 
       buf->row_size[buf->cx + 1] = 0;
       buf->r_row_size[buf->cx + 1] = 100;
@@ -338,9 +354,36 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       write(STDOUT_FILENO, "\033[0J", 4);
     }
 
+    else {
+      // print_debug("before if");
+      if (buf->row_size[buf->cx + 1] + strlen(tabstr) >= buf->r_row_size[buf->cx + 1]) {
+        buf->rows[buf->cx + 1] = (char*) realloc(buf->rows[buf->cx + 1], sizeof(char) * (buf->r_row_size[buf->cx + 1] + 100));
+        buf->r_row_size[buf->cx + 1] += 100;
+      }
+
+      // print_debug("before strncpy");
+      // char msg[400];
+
+      // sprintf(msg, "%lu /%s/ %lu /%s/", strlen(tabstr), tabstr, buf->r_row_size[buf->cx + 1], buf->rows[buf->cx + 1]);
+      // print_debug(msg);
+
+      strncpy(buf->rows[buf->cx + 1], tabstr, strlen(tabstr));
+    }
+
+    // print_debug("before incrementing row_size");
+
+    buf->row_size[buf->cx + 1] += strlen(tabstr);
+
     buf->cx++;
     buf->size++;
-    buf->cy = 0;
+
+    if (strlen(tabstr) > 0) {
+      buf->cy = strlen(tabstr);
+    }
+
+    else {
+      buf->cy = 0;
+    }
   } 
 
 
@@ -369,6 +412,7 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
 
   else if (c == '\t') { // convert tabs to spaces
     // fprintf(stderr, "\n\n\n%d %d", buf->row_size[buf->cx], buf->cy);
+    tabs++;
 
     if (buf->row_size[buf->cx] + TAB_SIZE >= buf->r_row_size[buf->cx]) {
       buf->r_row_size[buf->cx] += 100;
