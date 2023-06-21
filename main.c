@@ -10,6 +10,7 @@
 
 #define DEBUG 1
 #define TAB_SIZE 2
+#define NUMBER 1
 
 #define MAX(a, b) \
   ({ __typeof__(a) a_ = (a); \
@@ -250,6 +251,10 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
       write(STDOUT_FILENO, c_out, 2);
     }
 
+    char cur_lin[100];
+    sprintf(cur_lin, "%d ", i);
+    write(STDOUT_FILENO, cur_lin, strlen(cur_lin));
+
     for (int j = 0; j < buf->row_size[i]; ++j) {
       char c_out = buf->rows[i][j];
       write(STDOUT_FILENO, &c_out, 1);
@@ -264,9 +269,15 @@ int get_input(struct Buffer* buf, struct Screen *scr) {
 
   char esc_seq[300];
   int start = MAX(0, (int) buf->size - (int) scr->lins);
+
+  char scr_number[100] = "";
+  if (NUMBER) {
+    sprintf(scr_number, "%d ", buf->cx + 1);
+  }
+
   int rx = (int) buf->cx - start + 1;
 
-  sprintf(esc_seq, "\033[%d;%dH", rx, buf->cy+1);
+  sprintf(esc_seq, "\033[%d;%luH", rx, buf->cy + 1 + strlen(scr_number));
   write(STDOUT_FILENO, esc_seq, strlen(esc_seq));
 
 
