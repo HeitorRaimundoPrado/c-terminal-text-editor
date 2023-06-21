@@ -323,15 +323,10 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       memset(buf->r_row_size+old_size, 0, buf->r_size-old_size);
     }
 
-    char tabstr[300] = "";
-    // char num_of_tabs[300];
+    char tabstr[TAB_SIZE * 300] = "";
 
-    // sprintf(num_of_tabs, "%i", MIN(tabs, 300));
-    // print_debug("num of tabs:");
-    // print_debug(num_of_tabs);
-
-    for (int i = 0; i < MIN(tabs, 300); ++i) {
-      strcat(tabstr, "  ");
+    for (int i = 0; i < TAB_SIZE * MIN(tabs, 300); ++i) {
+      strcat(tabstr, " ");
     }
 
     if (buf->cx != buf->size-1) {
@@ -355,22 +350,13 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
     }
 
     else {
-      // print_debug("before if");
       if (buf->row_size[buf->cx + 1] + strlen(tabstr) >= buf->r_row_size[buf->cx + 1]) {
         buf->rows[buf->cx + 1] = (char*) realloc(buf->rows[buf->cx + 1], sizeof(char) * (buf->r_row_size[buf->cx + 1] + 100));
         buf->r_row_size[buf->cx + 1] += 100;
       }
 
-      // print_debug("before strncpy");
-      // char msg[400];
-
-      // sprintf(msg, "%lu /%s/ %lu /%s/", strlen(tabstr), tabstr, buf->r_row_size[buf->cx + 1], buf->rows[buf->cx + 1]);
-      // print_debug(msg);
-
       strncpy(buf->rows[buf->cx + 1], tabstr, strlen(tabstr));
     }
-
-    // print_debug("before incrementing row_size");
 
     buf->row_size[buf->cx + 1] += strlen(tabstr);
 
@@ -392,12 +378,25 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       return;
     }
 
+    char tabstr[TAB_SIZE * 300] = "";
+    for (int i = 0; i < TAB_SIZE * MIN(300, tabs); ++i) {
+      strcat(tabstr, " ");
+    }
+
+    if (strcmp(tabstr, buf->rows[buf->cx]) == 0 && buf->cy == buf->row_size[buf->cx]) {
+      tabs--;
+      buf->cy -= TAB_SIZE;
+      buf->row_size[buf->cx] -= TAB_SIZE;
+      buf->rows[buf->cx][buf->cy] = '\0';
+      return;
+    }
+
     buf->cy--;
     buf->row_size[buf->cx]--;
     
-    if (buf->cy < buf->row_size[buf->cx]) {
+    if (buf->cy < buf->row_size[buf->cx]) { // if cursor in middle of string
       memmove(buf->rows[buf->cx]+buf->cy, buf->rows[buf->cx]+buf->cy+1, buf->row_size[buf->cx]-buf->cy);
-    } else {
+    } else { // if cursor in end of string
       buf->rows[buf->cx][buf->cy] = '\0';
     }
 
