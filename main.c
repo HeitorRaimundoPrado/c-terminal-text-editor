@@ -14,6 +14,24 @@
 #define ANSI_RGB_COLOR_FORMAT "\033[38;2;%d;%d;%dm"
 #define ANSI_RESET_COLOR "\033[0m"
 
+const char *keywords[] = {
+  "while", 
+  "for", 
+  "if", 
+  "else", 
+  "switch",
+  "case"
+};
+
+int is_keyword(const char* word) {
+  for (int i = 0; i < sizeof(keywords) / sizeof(keywords[0]); ++i) {
+    if (strncmp(keywords[i], word, strlen(keywords[i])) == 0) {
+      return strlen(keywords[i]);
+    }
+  }
+  return 0;
+}
+
 #define MAX(a, b) \
   ({ __typeof__(a) a_ = (a); \
      __typeof__(b) b_ = (b); \
@@ -264,9 +282,48 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
       write(STDOUT_FILENO, ANSI_RESET_COLOR, strlen(ANSI_RESET_COLOR));
     }
 
+
+    // print_debug("before strtok");
+    // print_debug("after strtok");
+    unsigned chars_to_write = 0;
+
     for (int j = 0; j < buf->row_size[i]; ++j) {
+      char *cpyStr = strdup(buf->rows[i]);
+      char *tok;
+      size_t tok_size = 0;
+
+      if (buf->rows[i][j] != ' ' && !tok_size) {
+        tok = strtok(cpyStr+j, " ");
+        tok_size = strlen(tok);
+      }
+
+      if (tok_size) {
+        tok_size--;
+      }
+
+      int keyword_size = 0;
+      if (!keyword_size && tok != NULL) {
+        keyword_size = is_keyword(tok);
+      }
+
+      if (!chars_to_write && keyword_size) {
+        char color_to_write[200];
+        sprintf(color_to_write, ANSI_RGB_COLOR_FORMAT, 255, 255, 51);
+        write(STDOUT_FILENO, color_to_write, strlen(color_to_write) + 1);
+        chars_to_write = keyword_size;
+      } 
+
+      else if (!chars_to_write) {
+        write(STDOUT_FILENO, ANSI_RESET_COLOR, strlen(ANSI_RESET_COLOR)+1);
+      }
+
+      else {
+        chars_to_write--;
+      }
+
       char c_out = buf->rows[i][j];
       write(STDOUT_FILENO, &c_out, 1);
+      free(cpyStr);
     }
   }
   return limit;
@@ -314,13 +371,16 @@ void buffer_init(struct Buffer* buf) {
   buf->size = 1;
   buf->r_size = 10;
 
-  buf->rows = calloc(10, sizeof(char*));
+  buf->rows = (char**) calloc(10, sizeof(char*));
 
-  buf->row_size = calloc(10, sizeof(unsigned long));
+  buf->row_size = (unsigned long*) calloc(10, sizeof(unsigned long));
 
-  buf->r_row_size = calloc(10, sizeof(unsigned long));
+  buf->r_row_size = (unsigned long*) calloc(10, sizeof(unsigned long));
 
-  buf->tabs = calloc(10, sizeof(int));
+  buf->rows[0] = (char*) calloc(100, sizeof(char));
+  buf->r_row_size[0] = 100;
+
+  buf->tabs = (int*) calloc(10, sizeof(int));
 }
 
 void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
@@ -375,6 +435,7 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
     else {
       if (buf->row_size[buf->cx + 1] + strlen(tabstr) >= buf->r_row_size[buf->cx + 1]) {
         buf->rows[buf->cx + 1] = (char*) realloc(buf->rows[buf->cx + 1], sizeof(char) * (buf->r_row_size[buf->cx + 1] + 100));
+        memset(buf->rows+buf->cx + 1 + buf->r_row_size[buf->cx], 0, 100*sizeof(int));
         buf->r_row_size[buf->cx + 1] += 100;
       }
 
@@ -455,6 +516,7 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       buf->r_row_size[buf->cx] += 100;
       buf->rows[buf->cx] = realloc(buf->rows[buf->cx],
                                    (buf->r_row_size[buf->cx]) * sizeof(char));
+
     }
 
     if (buf->row_size[buf->cx] == buf->cy) {
