@@ -11,6 +11,8 @@
 #define DEBUG 1
 #define TAB_SIZE 2
 #define NUMBER 1
+#define ANSI_RGB_COLOR_FORMAT "\033[38;2;%d;%d;%dm"
+#define ANSI_RESET_COLOR "\033[0m"
 
 #define MAX(a, b) \
   ({ __typeof__(a) a_ = (a); \
@@ -249,9 +251,18 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
       write(STDOUT_FILENO, c_out, 2);
     }
 
-    char cur_lin[100];
-    sprintf(cur_lin, "%d ", i+1);
-    write(STDOUT_FILENO, cur_lin, strlen(cur_lin));
+    char scr_num[100] = "";
+    if (NUMBER) {
+      char color_highlight[300];
+      sprintf(color_highlight, ANSI_RGB_COLOR_FORMAT, 203, 58, 255);
+      
+      write(STDOUT_FILENO, color_highlight, strlen(color_highlight) + 1); // need to account for \033 non-printable
+
+      sprintf(scr_num, "%d ", i+1);
+      write(STDOUT_FILENO, scr_num, strlen(scr_num));
+
+      write(STDOUT_FILENO, ANSI_RESET_COLOR, strlen(ANSI_RESET_COLOR));
+    }
 
     for (int j = 0; j < buf->row_size[i]; ++j) {
       char c_out = buf->rows[i][j];
