@@ -404,6 +404,20 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       return;
     }
 
+    else if (strncmp(tabstr, buf->rows[buf->cx], strlen(tabstr)) == 0 && buf->tabs[buf->cx] > 0 &&
+      strlen(tabstr) == buf->cy) {
+      // print_debug("getting into right place");
+      buf->tabs[buf->cx]--;
+
+      // erase line
+      write(STDOUT_FILENO, "\033[2K", 4);
+
+      memmove(buf->rows[buf->cx] + buf->cy - TAB_SIZE, buf->rows[buf->cx] + buf->cy, buf->row_size[buf->cx] - buf->cy + 1);
+      buf->cy -= TAB_SIZE;
+      buf->row_size[buf->cx] -= TAB_SIZE;
+      return;
+    }
+
     buf->cy--;
     buf->row_size[buf->cx]--;
     
