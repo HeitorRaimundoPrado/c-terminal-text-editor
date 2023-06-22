@@ -22,9 +22,6 @@
      __typeof__(b) b_ = (b); \
      a_ < b_ ? a_ : b_; })
 
-int tabs = 0;
-int sp_rem = 0;
-
 struct termios orig_termios;
 
 struct Buffer {
@@ -34,6 +31,7 @@ struct Buffer {
   unsigned long *row_size;
   unsigned long *r_row_size;
   int cx, cy; // cursor position
+  int *tabs;
 };
 
 struct Screen {
@@ -252,7 +250,7 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
     }
 
     char cur_lin[100];
-    sprintf(cur_lin, "%d ", i);
+    sprintf(cur_lin, "%d ", i+1);
     write(STDOUT_FILENO, cur_lin, strlen(cur_lin));
 
     for (int j = 0; j < buf->row_size[i]; ++j) {
@@ -311,7 +309,7 @@ void buffer_init(struct Buffer* buf) {
 
   buf->r_row_size = calloc(10, sizeof(unsigned long));
 
-  buf->rows[0] = calloc(100, sizeof(char));
+  buf->tabs = calloc(10, sizeof(int));
 }
 
 void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
@@ -332,11 +330,14 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
 
       buf->r_row_size = realloc(buf->r_row_size, buf->r_size * sizeof(unsigned long));
       memset(buf->r_row_size+old_size, 0, buf->r_size-old_size);
+
+      buf->tabs = realloc(buf->tabs, buf->r_size * sizeof(int));
+      memset(buf->tabs+old_size, 0, buf->r_size-old_size);
     }
 
     char tabstr[TAB_SIZE * 300] = "";
 
-    for (int i = 0; i < TAB_SIZE * MIN(tabs, 300); ++i) {
+    for (int i = 0; i < TAB_SIZE * MIN(buf->tabs[buf->cx], 300); ++i) {
       strcat(tabstr, " ");
     }
 
@@ -376,6 +377,7 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
 
     if (strlen(tabstr) > 0) {
       buf->cy = strlen(tabstr);
+      buf->tabs[buf->cx] = buf->tabs[buf->cx-1];
     }
 
     else {
@@ -390,12 +392,12 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
     }
 
     char tabstr[TAB_SIZE * 300] = "";
-    for (int i = 0; i < TAB_SIZE * MIN(300, tabs); ++i) {
+    for (int i = 0; i < TAB_SIZE * MIN(300, buf->tabs[buf->cx]); ++i) {
       strcat(tabstr, " ");
     }
 
     if (strcmp(tabstr, buf->rows[buf->cx]) == 0 && buf->cy == buf->row_size[buf->cx]) {
-      tabs--;
+      buf->tabs[buf->cx]--;
       buf->cy -= TAB_SIZE;
       buf->row_size[buf->cx] -= TAB_SIZE;
       buf->rows[buf->cx][buf->cy] = '\0';
@@ -422,7 +424,7 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
 
   else if (c == '\t') { // convert tabs to spaces
     // fprintf(stderr, "\n\n\n%d %d", buf->row_size[buf->cx], buf->cy);
-    tabs++;
+    buf->tabs[buf->cx]++;
 
     if (buf->row_size[buf->cx] + TAB_SIZE >= buf->r_row_size[buf->cx]) {
       buf->r_row_size[buf->cx] += 100;
@@ -560,6 +562,15 @@ void buffer_read(struct Buffer* buf, const char * filename) {
     exit(1);
   }
 
+  buf->tabs = (int*) malloc(num_rows*sizeof(int));
+  if (buf->tabs == NULL) {
+    fprintf(stderr, "Failed to allocate memory\n");
+    free(buf->rows);
+    free(buf->row_size);
+    free(buf->r_row_size);
+    exit(1);
+  }
+
   char *line = NULL;
   size_t line_len = 0;
   int i = 0;
@@ -569,6 +580,7 @@ void buffer_read(struct Buffer* buf, const char * filename) {
     if (line[readSize - 1] == '\n') {
       line[readSize - 1] = '\0';
     }
+
 
 
     buf->rows[i] = (char*) malloc((readSize + 30) * sizeof(char));
