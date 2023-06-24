@@ -20,16 +20,40 @@ const char *keywords[] = {
   "if", 
   "else", 
   "switch",
-  "case"
+  "case",
+  "return"
 };
 
-int is_keyword(const char* word) {
+const char *data_types[] = {
+  "int",
+  "float",
+  "double",
+  "char",
+  "void",
+  "unsigned",
+  "long"
+};
+
+int* is_keyword(const char* word) {
+  int *ret = malloc(2 * sizeof(int));
   for (int i = 0; i < sizeof(keywords) / sizeof(keywords[0]); ++i) {
     if (strncmp(keywords[i], word, strlen(keywords[i])) == 0) {
-      return strlen(keywords[i]);
+      ret[0] = strlen(keywords[i]);
+      ret[1] = 0;
+      return ret;
     }
   }
-  return 0;
+
+  for (int i = 0; i < sizeof(data_types) / sizeof(data_types[0]); ++i) {
+    if (strcmp(data_types[i], word) == 0) {
+      ret[0] = strlen(data_types[i]);
+      ret[1] = 1;
+      return ret;
+    }
+  }
+
+  free(ret);
+  return NULL;
 }
 
 #define MAX(a, b) \
@@ -301,16 +325,32 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
         tok_size--;
       }
 
-      int keyword_size = 0;
-      if (!keyword_size && tok != NULL) {
-        keyword_size = is_keyword(tok);
+      int highlight_size = 0;
+      int highlight_type = 0;
+
+      if (!highlight_size && tok != NULL) {
+        int *key = is_keyword(tok);
+        if (key != NULL) {
+          highlight_size = key[0];
+          highlight_type = key[1];
+        }
       }
 
-      if (!chars_to_write && keyword_size) {
+      if (!chars_to_write && highlight_size) {
         char color_to_write[200];
-        sprintf(color_to_write, ANSI_RGB_COLOR_FORMAT, 255, 255, 51);
+
+        switch (highlight_type) {
+          case 0:
+            sprintf(color_to_write, ANSI_RGB_COLOR_FORMAT, 255, 255, 51);
+            break;
+
+          case 1:
+            sprintf(color_to_write, ANSI_RGB_COLOR_FORMAT, 0, 186, 155);
+            break;
+
+        }
         write(STDOUT_FILENO, color_to_write, strlen(color_to_write) + 1);
-        chars_to_write = keyword_size;
+        chars_to_write = highlight_size;
       } 
 
       else if (!chars_to_write) {
