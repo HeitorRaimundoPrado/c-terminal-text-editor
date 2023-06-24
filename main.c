@@ -276,7 +276,7 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
       
       write(STDOUT_FILENO, color_highlight, strlen(color_highlight) + 1); // need to account for \033 non-printable
 
-      sprintf(scr_num, "%d ", i+1);
+      sprintf(scr_num, "%5d ", i+1);
       write(STDOUT_FILENO, scr_num, strlen(scr_num));
 
       write(STDOUT_FILENO, ANSI_RESET_COLOR, strlen(ANSI_RESET_COLOR));
@@ -338,7 +338,7 @@ int get_input(struct Buffer* buf, struct Screen *scr) {
 
   char scr_number[100] = "";
   if (NUMBER) {
-    sprintf(scr_number, "%d ", buf->cx + 1);
+    sprintf(scr_number, "%5d ", buf->cx + 1);
   }
 
   int rx = (int) buf->cx - start + 1;
@@ -417,13 +417,27 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       memmove(&buf->row_size[buf->cx + 2], &buf->row_size[buf->cx + 1], (buf->size - buf->cx - 1 ) * (sizeof(unsigned long)));
       memmove(&buf->r_row_size[buf->cx + 2], &buf->r_row_size[buf->cx + 1], (buf->size - buf->cx - 1) * sizeof(unsigned long));
 
-
       buf->rows[buf->cx + 1] = (char*) malloc(100 * sizeof(char));
-
-      strncpy(buf->rows[buf->cx + 1], tabstr, strlen(tabstr));
-
-      buf->row_size[buf->cx + 1] = 0;
       buf->r_row_size[buf->cx + 1] = 100;
+
+      // write the correct number of tabs
+      strncpy(buf->rows[buf->cx + 1], tabstr, strlen(tabstr));
+      buf->row_size[buf->cx + 1] = strlen(tabstr);
+
+      // if cursor in middle of line copy contents after to that point
+      strncat(buf->rows[buf->cx + 1], buf->rows[buf->cx]+buf->cy, buf->row_size[buf->cx] - buf->cy);
+      buf->row_size[buf->cx + 1] += buf->row_size[buf->cx ] - buf->cy;
+
+      buf->row_size[buf->cx] = buf->cy;
+
+      // char row_size_msg[400];
+      // sprintf(row_size_msg, "row_size = %lu\n", buf->row_size[buf->cx + 1]);
+      // print_debug(row_size_msg);
+
+
+
+      // sprintf(row_size_msg, "row_size = %lu\n", buf->row_size[buf->cx + 1]);
+      // print_debug(row_size_msg);
 
       char goto_erase_line[200];
       sprintf(goto_erase_line, "\033[%d;0H", buf->cx);
@@ -442,14 +456,14 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       strncpy(buf->rows[buf->cx + 1], tabstr, strlen(tabstr));
     }
 
-    buf->row_size[buf->cx + 1] += strlen(tabstr);
+    // buf->row_size[buf->cx + 1] += strlen(tabstr);
 
     buf->cx++;
     buf->size++;
 
-    if (strlen(tabstr) > 0) {
-      buf->cy = strlen(tabstr);
-      buf->tabs[buf->cx] = buf->tabs[buf->cx-1];
+    if (buf->row_size[buf->cx] > 0) {
+      buf->cy = buf->row_size[buf->cx];
+      buf->tabs[buf->cx] = buf->cx > 0 ? buf->tabs[buf->cx-1] : 0;
     }
 
     else {
