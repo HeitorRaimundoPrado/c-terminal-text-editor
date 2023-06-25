@@ -31,13 +31,42 @@ const char *data_types[] = {
   "char",
   "void",
   "unsigned",
-  "long"
+  "long",
+  "sizeof"
 };
 
-int* is_keyword(const char* word) {
+const char *operands[] = {
+  "+",
+  "-",
+  "=",
+  ";",
+  "<",
+  ">",
+  "!",
+  "%",
+  "&",
+  "|",
+  "<<",
+  ">>",
+  "++",
+  "--",
+  "+=",
+  "-=",
+  "/=",
+  "*=",
+  "<=",
+  ">=",
+  "==",
+  "!=",
+  "&&",
+  "||"
+};
+
+// returns {length of highlight_word, highlight_type}
+int* is_highlight(const char* word) {
   int *ret = malloc(2 * sizeof(int));
   for (int i = 0; i < sizeof(keywords) / sizeof(keywords[0]); ++i) {
-    if (strncmp(keywords[i], word, strlen(keywords[i])) == 0) {
+    if (strcmp(keywords[i], word) == 0) {
       ret[0] = strlen(keywords[i]);
       ret[1] = 0;
       return ret;
@@ -48,6 +77,14 @@ int* is_keyword(const char* word) {
     if (strcmp(data_types[i], word) == 0) {
       ret[0] = strlen(data_types[i]);
       ret[1] = 1;
+      return ret;
+    }
+  }
+
+  for (int i = 0; i < sizeof(operands) / sizeof(operands[0]); ++i) {
+    if (strcmp(operands[i], word) == 0) {
+      ret[0] = strlen(operands[i]);
+      ret[1] = 2;
       return ret;
     }
   }
@@ -294,6 +331,7 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
     }
 
     char scr_num[100] = "";
+
     if (NUMBER) {
       char color_highlight[300];
       sprintf(color_highlight, ANSI_RGB_COLOR_FORMAT, 203, 58, 255);
@@ -317,8 +355,10 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
       size_t tok_size = 0;
 
       if (buf->rows[i][j] != ' ' && !tok_size) {
-        tok = strtok(cpyStr+j, " ");
-        tok_size = strlen(tok);
+        if (j == 0 || buf->rows[i][j-1] == ' ') {
+          tok = strtok(cpyStr+j, " ");
+          tok_size = strlen(tok);
+        }
       }
 
       if (tok_size) {
@@ -329,10 +369,11 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
       int highlight_type = 0;
 
       if (!highlight_size && tok != NULL) {
-        int *key = is_keyword(tok);
+        int *key = is_highlight(tok);
         if (key != NULL) {
           highlight_size = key[0];
           highlight_type = key[1];
+          tok = NULL;
         }
       }
 
@@ -348,6 +389,9 @@ int render_buf(struct Buffer *buf, struct Screen* scr, int llimit) {
             sprintf(color_to_write, ANSI_RGB_COLOR_FORMAT, 0, 186, 155);
             break;
 
+          case 2:
+            sprintf(color_to_write, ANSI_RGB_COLOR_FORMAT, 0, 255, 239);
+            break;
         }
         write(STDOUT_FILENO, color_to_write, strlen(color_to_write) + 1);
         chars_to_write = highlight_size;
@@ -494,6 +538,7 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
       }
 
       strncpy(buf->rows[buf->cx + 1], tabstr, strlen(tabstr));
+      buf->row_size[buf->cx + 1] = strlen(tabstr);
     }
 
     // buf->row_size[buf->cx + 1] += strlen(tabstr);
@@ -501,14 +546,8 @@ void buffer_write(struct Buffer* buf, char c, struct Screen* scr) {
     buf->cx++;
     buf->size++;
 
-    if (buf->row_size[buf->cx] > 0) {
-      buf->cy = buf->row_size[buf->cx];
-      buf->tabs[buf->cx] = buf->cx > 0 ? buf->tabs[buf->cx-1] : 0;
-    }
-
-    else {
-      buf->cy = 0;
-    }
+    buf->tabs[buf->cx] = buf->cx > 0 ? buf->tabs[buf->cx-1] : 0;
+    buf->cy = buf->row_size[buf->cx];
   } 
 
 
